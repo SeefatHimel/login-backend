@@ -246,7 +246,7 @@ async function registerUser(userReq, res) {
 
 app.post("/signUp", async (req, res) => {
   console.log("res.body", req.body);
-  console.log("req", req);
+  // console.log("req", req);
   await registerUser(req.body, res);
   console.log("246", "/signUp", "ok");
   // res.status(200).send({ message: "User Created !!" });
