@@ -247,9 +247,9 @@ async function registerUser(userReq, res) {
 }
 
 app.post("/signUp", async (req, res) => {
-  console.log("/signUp : ", req.body.data);
+  console.log("/signUp : ", req.body);
   try {
-    await registerUser(req.body.data, res);
+    await registerUser(req.body, res);
   } catch (error) {
     console.log(error);
   }
