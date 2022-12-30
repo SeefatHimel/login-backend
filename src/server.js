@@ -167,15 +167,20 @@ app.get("/login", async (req, res) => {
         accessToken: accessToken,
         refreshToken: refreshToken,
         userData: userData,
+        message: "Logged in successfully",
       });
     } catch (error) {
       console.error(error.message);
-      res.send([]);
+      res.status(201).status(400).send({
+        message: "Logged in Failed",
+      });
     }
   }
 });
 
 function authenticateToken(req, res, next) {
+  console.log("In authenticateToken");
+  console.log("req.headers ", req.headers);
   const authHeader = req.headers["authorization"];
   console.log("authHeader", authHeader);
   const token = authHeader && authHeader.split(" ")[1];
