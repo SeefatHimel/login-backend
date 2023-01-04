@@ -169,10 +169,13 @@ app.get("/login", async (req, res) => {
         accessToken: accessToken,
         refreshToken: refreshToken,
         userData: userData,
+        message: "Logged in successfully",
       });
     } catch (error) {
       console.error(error.message);
-      res.send([]);
+      res.status(201).status(400).send({
+        message: "Logged in Failed",
+      });
     }
   }
 });
@@ -263,8 +266,13 @@ async function registerUser(userReq, res) {
 }
 
 app.post("/signUp", async (req, res) => {
-  await registerUser(req.body.data, res);
-  console.log("246", "/signUp", "ok");
+  console.log("/signUp : ", req.body);
+  try {
+    await registerUser(req.body, res);
+  } catch (error) {
+    console.log(error);
+  }
+  console.log("/signUp", "ok");
   // res.status(200).send({ message: "User Created !!" });
 
   // res.send(req.body.data);
