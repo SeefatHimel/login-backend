@@ -45,8 +45,10 @@ async function saveToDB(name, email) {
       console.log("User Added ", user);
     } catch (e) {
       console.log(e.message);
+      return false;
     }
   }
+  return true;
 }
 async function saveJwtRefreshToken(email, refresh_token) {
   const oldToken = await UserTokens.where("refresh_token").equals(
@@ -57,13 +59,15 @@ async function saveJwtRefreshToken(email, refresh_token) {
     console.log("Token already Exists");
   } else {
     try {
-      const newToken = await UserTokens.create({
+      await UserTokens.create({
         email: email,
         refresh_token: refresh_token,
       });
       console.log("Token Added ", newToken);
+      return true;
     } catch (e) {
       console.log(e.message);
+      return false;
     }
   }
 }
@@ -141,15 +145,26 @@ app.get("/getLink", (req, res) => {
 app.get("/login", async (req, res) => {
   if (!oAuth2Client?.credentials?.access_token) {
     const tokensFound = await getGoogleTokens(req.query.code, res);
-    if (!tokensFound) res.sendStatus(401);
+    if (!tokensFound) {
+      console.error("Failed to get Google tokens");
+      res.sendStatus(401).send({
+        message: "Failed to get Google tokens",
+      });
+    }
   }
   const userData = await getGoogleUserData(
     oAuth2Client?.credentials?.access_token
   );
-  console.log(">>>>>>>>", userData);
+  console.log("GoogleUserData >> ", userData);
   if (userData) {
     try {
-      await saveToDB(userData?.name, userData?.email);
+      const savedToDB = await saveToDB(userData?.name, userData?.email);
+      if (!savedToDB) {
+        console.log("Failed to add user");
+        res.status(400).send({
+          message: "Failed to add user",
+        });
+      }
       const accessToken = generateJwtAccessToken({
         name: userData?.name,
         email: userData?.email,
@@ -162,48 +177,76 @@ app.get("/login", async (req, res) => {
         process.env.REFRESH_TOKEN_SECRET
       );
       console.log({ accessToken: accessToken, refreshToken: refreshToken });
-      saveJwtRefreshToken(userData?.email, refreshToken);
-      res.cookie("accessToken", accessToken);
-      res.cookie("refreshToken", refreshToken);
-      res.send({
-        accessToken: accessToken,
-        refreshToken: refreshToken,
-        userData: userData,
-        message: "Logged in successfully",
-      });
+      const savedJwtRefreshToken = saveJwtRefreshToken(
+        userData?.email,
+        refreshToken
+      );
+      if (savedJwtRefreshToken) {
+        res.cookie("accessToken", accessToken);
+        res.cookie("refreshToken", refreshToken);
+        res.send({
+          accessToken: accessToken,
+          refreshToken: refreshToken,
+          userData: userData,
+          message: "Logged in successfully",
+        });
+      } else {
+        console.log("Failed to save token");
+        res.status(400).send({
+          message: "Failed to save token",
+        });
+      }
     } catch (error) {
       console.error(error.message);
-      res.status(201).status(400).send({
+      res.status(400).send({
         message: "Logged in Failed",
       });
     }
+  } else {
+    console.error("Failed to get Google User Data");
+    res.sendStatus(401).send({
+      message: "Failed to get Google User Data",
+    });
   }
 });
 
 function authenticateJwtAccessToken(req, res, next) {
   const authHeader = req.headers["authorization"];
-  console.log("authHeader", authHeader);
+  console.log("authHeader ", authHeader);
   const token = authHeader && authHeader.split(" ")[1];
-  console.log("token", token);
+  console.log("JwtAccessToken ", token);
 
-  if (token == null) return res.sendStatus(401);
+  if (!token) {
+    console.log("Token not found!");
+    return res.sendStatus(404).send({
+      message: "Token not found!",
+    });
+  }
 
   jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, (err, data) => {
-    console.log("err", err);
-    console.log("data", data);
-    console.log("req.user", req.user);
-    if (err) return res.sendStatus(403);
+    console.log("err ", err);
+    console.log("data.user.name ", data.user.name);
+    console.log("req.user before ", req.user);
+    if (err) {
+      console.log("AccessToken Expired");
+      return res.sendStatus(401).send({
+        message: "AccessToken Expired",
+      });
+    }
     req.user = data.user.name;
     // console.log("req", req);
-    console.log("req.user", req.user);
-
+    console.log("req.user after ", req.user);
     next();
   });
 }
 
 async function getDataFromDB(email) {
-  const allData = await await User.where("email").equals(email);
-  return allData;
+  try {
+    const allData = await User.where("email").equals(email);
+    return allData;
+  } catch (error) {
+    return -1;
+  }
 }
 
 async function getLoggedInUser(token) {
@@ -220,12 +263,25 @@ app.get("/getData", authenticateJwtAccessToken, async (req, res) => {
   console.log("/getData", authToken);
   const loggedInUser = await getLoggedInUser(authToken);
   console.log("/getData > user > ", loggedInUser);
-
+  if (!loggedInUser) {
+    console.log("User Not Found");
+    res.status(401).send({
+      message: "User Not Found",
+    });
+  }
   console.log("in data");
   const data = await getDataFromDB(loggedInUser.email);
   // console.log("data>>> ", data);
   // console.log(">>>>>>>", data?.name, data?.email);
-  res.send(data);
+  if (data === -1) {
+    console.log("Failed to acquire data");
+    res.status(400).send({
+      message: "Failed to acquire data",
+    });
+  } else {
+    console.log("data>>> ", data);
+    res.status(200).send(data);
+  }
 });
 
 async function registerUser(userReq, res) {
@@ -247,21 +303,27 @@ async function registerUser(userReq, res) {
       newUser.save((err, User) => {
         if (err) {
           console.log(err);
+          console.log("Failed to add user.");
           return res.status(400).send({
             message: "Failed to add user.",
           });
         } else {
+          console.log("User added successfully.");
           return res.status(201).send({
             message: "User added successfully.",
           });
         }
       });
     } catch (error) {
-      console.log(error, "err");
+      console.log("error > ", error);
+      console.log("Failed to add user.");
       return res.status(400).send({
         message: "Failed to add user.",
       });
     }
+  } else {
+    console.log("Email already in use");
+    res.status(401).send({ message: "Email already in use" });
   }
 }
 
@@ -269,24 +331,34 @@ app.post("/signUp", async (req, res) => {
   console.log("/signUp : ", req.body);
   try {
     await registerUser(req.body, res);
+    console.log("/signUp", "Successful !");
+    res.status(200).send({ message: "User Created !!", data: req.body.data });
   } catch (error) {
-    console.log(error);
+    console.log("signUp catch error > ", error);
+    console.log("Failed to signUp.");
+    res.status(400).send({
+      message: "Failed to signUp.",
+    });
   }
-  console.log("/signUp", "ok");
-  // res.status(200).send({ message: "User Created !!" });
-
-  // res.send(req.body.data);
 });
 
 app.post("/signIn", async (req, res) => {
   console.log("email : ", req.body.email, " Pass : ", req.body.password);
+  if (!req.body.email) {
+    console.log("Request email was empty.");
+    return res.status(400).send({
+      message: "Request email was empty.",
+    });
+  }
   await User.findOne({ email: req.body.email }, function (err, user) {
+    if (err) console.error(err);
     if (!user) {
+      console.log("User not found.");
       return res.status(400).send({
         message: "User not found.",
       });
     } else {
-      console.log(user);
+      console.log("user > ", user);
       if (user.validPassword(req.body.password)) {
         const accessToken = generateJwtAccessToken({
           user: user?.name,
