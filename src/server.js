@@ -15,11 +15,14 @@ const keys = require("./data/oauth2.keys.json");
 const app = express();
 
 mongoose.connect(
-  "mongodb://localhost/socialLogin",
-  () => {
-    console.log("mongodb connected");
-  },
-  (e) => console.error(e)
+  "mongodb+srv://himel:himel@cluster0.6uvuj.mongodb.net/test",
+  (err, result) => {
+    if (err) {
+      console.error(err);
+    } else {
+      console.log("connected");
+    }
+  }
 );
 
 const corsOptions = {
@@ -45,7 +48,7 @@ async function saveToDB(name, email) {
     }
   }
 }
-async function saveRefreshToken(email, refresh_token) {
+async function saveJwtRefreshToken(email, refresh_token) {
   const oldToken = await UserTokens.where("refresh_token").equals(
     refresh_token
   );
@@ -73,7 +76,7 @@ const oAuth2Client = new OAuth2Client(
   keys.web.redirect_uris[0]
 );
 
-async function getTokens(code, res) {
+async function getGoogleTokens(code, res) {
   if (code) {
     const r = await oAuth2Client.getToken(code);
     oAuth2Client.setCredentials(r.tokens);
@@ -93,20 +96,20 @@ function getLink() {
   });
   return authorizeUrl;
 }
-function generateAccessToken(user, email) {
+function generateJwtAccessToken(user, email) {
   return jwt.sign(
     {
       user,
       email,
     },
     process.env.ACCESS_TOKEN_SECRET,
-    { expiresIn: "120s" }
+    { expiresIn: "600s" }
   );
 }
-async function getUserData(access_token) {
+async function getGoogleUserData(google_access_token) {
   const oauth2Client2 = new google.auth.OAuth2(); // create new auth client
   oauth2Client2.setCredentials({
-    access_token: access_token,
+    access_token: google_access_token,
   });
   const oauth2 = google.oauth2({
     auth: oauth2Client2,
@@ -123,7 +126,10 @@ app.post("/token", (req, res) => {
   if (refreshTokens[0]) return res.sendStatus(403);
   jwt.verify(refreshToken, process.env.REFRESH_TOKEN_SECRET, (err, user) => {
     if (err) return res.sendStatus(403);
-    const accessToken = generateAccessToken({ name: user.name });
+    const accessToken = generateJwtAccessToken({
+      name: user?.name,
+      email: user?.email,
+    });
     res.json({ accessToken: accessToken });
   });
 });
@@ -134,27 +140,29 @@ app.get("/getLink", (req, res) => {
 
 app.get("/login", async (req, res) => {
   if (!oAuth2Client?.credentials?.access_token) {
-    const tokensFound = await getTokens(req.query.code, res);
+    const tokensFound = await getGoogleTokens(req.query.code, res);
     if (!tokensFound) res.sendStatus(401);
   }
-  const userData = await getUserData(oAuth2Client?.credentials?.access_token);
+  const userData = await getGoogleUserData(
+    oAuth2Client?.credentials?.access_token
+  );
   console.log(">>>>>>>>", userData);
   if (userData) {
     try {
       await saveToDB(userData?.name, userData?.email);
-      const accessToken = generateAccessToken({
-        user: userData?.name,
+      const accessToken = generateJwtAccessToken({
+        name: userData?.name,
         email: userData?.email,
       });
       const refreshToken = jwt.sign(
         {
-          user: userData?.name,
+          name: userData?.name,
           email: userData?.email,
         },
         process.env.REFRESH_TOKEN_SECRET
       );
       console.log({ accessToken: accessToken, refreshToken: refreshToken });
-      saveRefreshToken(userData?.email, refreshToken);
+      saveJwtRefreshToken(userData?.email, refreshToken);
       res.cookie("accessToken", accessToken);
       res.cookie("refreshToken", refreshToken);
       res.send({
@@ -169,7 +177,7 @@ app.get("/login", async (req, res) => {
   }
 });
 
-function authenticateToken(req, res, next) {
+function authenticateJwtAccessToken(req, res, next) {
   const authHeader = req.headers["authorization"];
   console.log("authHeader", authHeader);
   const token = authHeader && authHeader.split(" ")[1];
@@ -182,7 +190,7 @@ function authenticateToken(req, res, next) {
     console.log("data", data);
     console.log("req.user", req.user);
     if (err) return res.sendStatus(403);
-    req.user = data.user.user;
+    req.user = data.user.name;
     // console.log("req", req);
     console.log("req.user", req.user);
 
@@ -190,23 +198,36 @@ function authenticateToken(req, res, next) {
   });
 }
 
-async function getDataFromDB() {
-  const allData = await User.find();
+async function getDataFromDB(email) {
+  const allData = await await User.where("email").equals(email);
   return allData;
 }
 
-app.get("/getData", authenticateToken, async (req, res) => {
+async function getLoggedInUser(token) {
+  let tmp;
+  jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, (err, data) => {
+    console.log("User > ", data);
+    tmp = data.user;
+  });
+  return tmp;
+}
+
+app.get("/getData", authenticateJwtAccessToken, async (req, res) => {
+  const authToken = req.headers["authorization"].split(" ")[1];
+  console.log("/getData", authToken);
+  const loggedInUser = await getLoggedInUser(authToken);
+  console.log("/getData > user > ", loggedInUser);
+
   console.log("in data");
-  const dt = await getDataFromDB();
-  console.log("dt>>> ", dt);
-  // console.log(">>>>>>>", dt?.name, dt?.email);
-  res.send(dt);
+  const data = await getDataFromDB(loggedInUser.email);
+  // console.log("data>>> ", data);
+  // console.log(">>>>>>>", data?.name, data?.email);
+  res.send(data);
 });
 
 async function registerUser(userReq, res) {
-  console.log("userReq.email", userReq.email);
+  console.log(userReq);
   const emailValid = await check_email(userReq.email);
-  console.log("Email is", emailValid ? "Valid" : "invalid");
   if (emailValid) {
     // Creating empty user object
     const newUser = new User();
@@ -222,32 +243,27 @@ async function registerUser(userReq, res) {
     try {
       newUser.save((err, User) => {
         if (err) {
-          console.log("225", err);
+          console.log(err);
           return res.status(400).send({
             message: "Failed to add user.",
           });
         } else {
-          console.log("User Creation Successful");
           return res.status(201).send({
             message: "User added successfully.",
           });
         }
       });
     } catch (error) {
-      console.log("err 236", error);
+      console.log(error, "err");
       return res.status(400).send({
         message: "Failed to add user.",
       });
     }
-  } else {
-    return res.status(403).send({ message: "Email already in use or Invalid" });
   }
 }
 
 app.post("/signUp", async (req, res) => {
-  console.log("res.body", req.body);
-  // console.log("req", req);
-  await registerUser(req.body, res);
+  await registerUser(req.body.data, res);
   console.log("246", "/signUp", "ok");
   // res.status(200).send({ message: "User Created !!" });
 
@@ -255,14 +271,16 @@ app.post("/signUp", async (req, res) => {
 });
 
 app.post("/signIn", async (req, res) => {
+  console.log("email : ", req.body.email, " Pass : ", req.body.password);
   await User.findOne({ email: req.body.email }, function (err, user) {
-    if (user === null) {
+    if (!user) {
       return res.status(400).send({
         message: "User not found.",
       });
     } else {
+      console.log(user);
       if (user.validPassword(req.body.password)) {
-        const accessToken = generateAccessToken({
+        const accessToken = generateJwtAccessToken({
           user: user?.name,
           email: user?.email,
         });
@@ -274,7 +292,7 @@ app.post("/signIn", async (req, res) => {
           process.env.REFRESH_TOKEN_SECRET
         );
         console.log({ accessToken: accessToken, refreshToken: refreshToken });
-        saveRefreshToken(user?.email, refreshToken);
+        saveJwtRefreshToken(user?.email, refreshToken);
         res.cookie("accessToken", accessToken);
         res.cookie("refreshToken", refreshToken);
         // res.send();
@@ -302,13 +320,11 @@ async function check_email(email) {
 }
 
 app.post("/register_email", async (req, res) => {
-  console.log("Email > ", req.body, req.body.email);
-  if (req?.body?.email) {
-    const validEmail = await check_email(req.body.email);
-    console.log("Valid Email : ", validEmail);
-    if (validEmail) res.status(200).send({ message: "email not in use" });
-    else res.status(403).send({ message: "email already in use" });
-  } else res.status(403).send({ message: "Invalid email" });
+  console.log("Email > ", req.body.data);
+  const validEmail = await check_email(req.body.data.email);
+  console.log("Valid Email : ", validEmail);
+  if (validEmail) res.status(200).send({ message: "email not in use" });
+  else res.status(403).send({ message: "email already in use" });
   // res.send(validEmail.name || req.body.email);
 });
 
@@ -326,7 +342,6 @@ app.post("/logout", async (req, res) => {
   } else res.status(200).send({ message: "Logged out!!" });
 });
 
-const port = process.env.PORT || 3000;
-app.listen(port, () => {
-  console.log("server running on port", port);
+app.listen(3000, () => {
+  console.log("server running");
 });
