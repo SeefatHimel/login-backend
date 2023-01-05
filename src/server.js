@@ -77,7 +77,7 @@ app.get("/", (req, res) => {
 const oAuth2Client = new OAuth2Client(
   keys.web.client_id,
   keys.web.client_secret,
-  keys.web.redirect_uris[0]
+  keys.web.redirect_uris[1]
 );
 
 async function getGoogleTokens(code, res) {
@@ -107,7 +107,7 @@ function generateJwtAccessToken(user, email) {
       email,
     },
     process.env.ACCESS_TOKEN_SECRET,
-    { expiresIn: "600s" }
+    { expiresIn: "30s" }
   );
 }
 async function getGoogleUserData(google_access_token) {
@@ -223,19 +223,21 @@ function authenticateJwtAccessToken(req, res, next) {
     });
   } else {
     jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, (err, data) => {
-      console.log("err ", err);
+      console.log("err ", "err");
       if (err) {
         console.log("AccessToken Expired");
-        return res.sendStatus(401).send({
+        res.status(401).send({
           message: "AccessToken Expired",
         });
+        console.log("AccessToken Expired");
+      } else {
+        console.log("data.user.name ", data.user.name);
+        console.log("req.user before ", req.user);
+        req.user = data.user.name;
+        // console.log("req", req);
+        console.log("req.user after ", req.user);
+        next();
       }
-      console.log("data.user.name ", data.user.name);
-      console.log("req.user before ", req.user);
-      req.user = data.user.name;
-      // console.log("req", req);
-      console.log("req.user after ", req.user);
-      next();
     });
   }
 }
