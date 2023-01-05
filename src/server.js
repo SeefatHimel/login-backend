@@ -225,14 +225,14 @@ function authenticateJwtAccessToken(req, res, next) {
 
   jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, (err, data) => {
     console.log("err ", err);
-    console.log("data.user.name ", data.user.name);
-    console.log("req.user before ", req.user);
     if (err) {
       console.log("AccessToken Expired");
       return res.sendStatus(401).send({
         message: "AccessToken Expired",
       });
     }
+    console.log("data.user.name ", data.user.name);
+    console.log("req.user before ", req.user);
     req.user = data.user.name;
     // console.log("req", req);
     console.log("req.user after ", req.user);
