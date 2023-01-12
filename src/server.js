@@ -77,15 +77,19 @@ app.get("/", (req, res) => {
 const oAuth2Client = new OAuth2Client(
   keys.web.client_id,
   keys.web.client_secret,
-  keys.web.redirect_uris[0]
+  keys.web.redirect_uris[1]
 );
 
 async function getGoogleTokens(code, res) {
   if (code) {
-    const r = await oAuth2Client.getToken(code);
-    oAuth2Client.setCredentials(r.tokens);
-    console.info("Tokens acquired.");
-    return true;
+    try {
+      const r = await oAuth2Client.getToken(code);
+      oAuth2Client.setCredentials(r.tokens);
+      console.info("Tokens acquired.");
+      return true;
+    } catch (error) {
+      return false;
+    }
   } else return false;
 }
 
@@ -125,11 +129,20 @@ async function getGoogleUserData(google_access_token) {
 app.post("/token", (req, res) => {
   const refreshToken = req.body.token;
   console.log("123", refreshToken);
-  if (refreshToken == null) return res.sendStatus(401);
+  if (refreshToken == null)
+    return res.status(401).send({
+      message: "Login Again",
+    });
   const refreshTokens = UserTokens.where("refresh_token").equals(refreshToken);
-  if (refreshTokens[0]) return res.sendStatus(403);
+  if (refreshTokens[0])
+    return res.status(403).send({
+      message: "Token already exists , Log in Again",
+    });
   jwt.verify(refreshToken, process.env.REFRESH_TOKEN_SECRET, (err, user) => {
-    if (err) return res.sendStatus(403);
+    if (err)
+      return res.status(403).send({
+        message: "JWT verification Failed. Login Again",
+      });
     const accessToken = generateJwtAccessToken({
       name: user?.name,
       email: user?.email,
@@ -143,70 +156,69 @@ app.get("/getLink", (req, res) => {
 });
 
 app.get("/login", async (req, res) => {
-  if (!oAuth2Client?.credentials?.access_token) {
-    const tokensFound = await getGoogleTokens(req.query.code, res);
-    if (!tokensFound) {
-      console.error("Failed to get Google tokens");
-      res.sendStatus(401).send({
-        message: "Failed to get Google tokens",
-      });
-    }
-  }
-  const userData = await getGoogleUserData(
-    oAuth2Client?.credentials?.access_token
-  );
-  console.log("GoogleUserData >> ", userData);
-  if (userData) {
-    try {
-      const savedToDB = await saveToDB(userData?.name, userData?.email);
-      if (!savedToDB) {
-        console.log("Failed to add user");
-        res.status(400).send({
-          message: "Failed to add user",
-        });
-      }
-      const accessToken = generateJwtAccessToken({
-        name: userData?.name,
-        email: userData?.email,
-      });
-      const refreshToken = jwt.sign(
-        {
+  const tokensFound = await getGoogleTokens(req.query.code, res);
+  if (!tokensFound) {
+    console.error("Code Expired");
+    res.status(401).send({
+      message: "Code Expired",
+    });
+  } else {
+    const userData = await getGoogleUserData(
+      oAuth2Client?.credentials?.access_token
+    );
+    console.log("GoogleUserData >> ", userData);
+    if (userData) {
+      try {
+        const savedToDB = await saveToDB(userData?.name, userData?.email);
+        if (!savedToDB) {
+          console.log("Failed to add user");
+          res.status(400).send({
+            message: "Failed to add user",
+          });
+        }
+        const accessToken = generateJwtAccessToken({
           name: userData?.name,
           email: userData?.email,
-        },
-        process.env.REFRESH_TOKEN_SECRET
-      );
-      console.log({ accessToken: accessToken, refreshToken: refreshToken });
-      const savedJwtRefreshToken = saveJwtRefreshToken(
-        userData?.email,
-        refreshToken
-      );
-      if (savedJwtRefreshToken) {
-        res.cookie("accessToken", accessToken);
-        res.cookie("refreshToken", refreshToken);
-        res.send({
-          accessToken: accessToken,
-          refreshToken: refreshToken,
-          userData: userData,
-          message: "Logged in successfully",
         });
-      } else {
-        console.log("Failed to save token");
+        const refreshToken = jwt.sign(
+          {
+            name: userData?.name,
+            email: userData?.email,
+          },
+          process.env.REFRESH_TOKEN_SECRET
+        );
+        console.log({ accessToken: accessToken, refreshToken: refreshToken });
+        const savedJwtRefreshToken = saveJwtRefreshToken(
+          userData?.email,
+          refreshToken
+        );
+        if (savedJwtRefreshToken) {
+          res.cookie("accessToken", accessToken);
+          res.cookie("refreshToken", refreshToken);
+          res.send({
+            accessToken: accessToken,
+            refreshToken: refreshToken,
+            userData: userData,
+            message: "Logged in successfully",
+          });
+        } else {
+          console.log("Failed to save token");
+          res.status(400).send({
+            message: "Failed to save token",
+          });
+        }
+      } catch (error) {
+        console.error(error.message);
         res.status(400).send({
-          message: "Failed to save token",
+          message: "Logged in Failed",
         });
       }
-    } catch (error) {
-      console.error(error.message);
-      res.status(400).send({
-        message: "Logged in Failed",
+    } else {
+      console.error("Failed to get Google User Data");
+      res.status(401).send({
+        message: "Failed to get Google User Data",
       });
     }
-  } else {
-    console.error("Failed to get Google User Data");
-    res.sendStatus(401).send({
-      message: "Failed to get Google User Data",
-    });
   }
 });
 
@@ -218,7 +230,7 @@ function authenticateJwtAccessToken(req, res, next) {
 
   if (!token) {
     console.log("Token not found!");
-    return res.sendStatus(404).send({
+    return res.status(404).send({
       message: "Token not found!",
     });
   } else {
