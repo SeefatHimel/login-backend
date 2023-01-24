@@ -16,7 +16,12 @@ const jwt = require("jsonwebtoken");
 const User = require("./models/user");
 const UserTokens = require("./models/userTokens");
 const keys = require("./data/oauth2.keys.json");
-const { saveToDB } = require("./services/mongoDBService");
+const {
+  saveToDB,
+  saveUserToDB,
+  getDataFromDBbyEmail,
+} = require("./services/mongoDBService");
+const { getValidUserData } = require("./services/userData");
 
 const app = express();
 
@@ -192,7 +197,7 @@ app.get("/login", async (req, res) => {
           res.send({
             accessToken: accessToken,
             refreshToken: refreshToken,
-            userData: userData,
+            userData: getValidUserData(userData),
             message: "Logged in successfully",
           });
           console.log("...............................");
@@ -251,17 +256,6 @@ function authenticateJwtAccessToken(req, res, next) {
   }
 }
 
-async function getDataFromDB(email) {
-  console.log("getDataFromDB > ", email);
-  try {
-    const allData = await User.where("email").equals(email);
-    return allData;
-  } catch (error) {
-    console.log("getDataFromDB Err ", error);
-    return -1;
-  }
-}
-
 async function getLoggedInUser(token) {
   let tmp;
   jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, (err, data) => {
@@ -285,7 +279,7 @@ app.get("/getData", authenticateJwtAccessToken, async (req, res) => {
   }
 
   console.log("in data");
-  const data = await getDataFromDB(loggedInUser.email);
+  const data = await getDataFromDBbyEmail(loggedInUser.email);
   // console.log("data>>> ", data);
   // console.log(">>>>>>>", data?.name, data?.email);
   if (data === -1) {
@@ -300,54 +294,25 @@ app.get("/getData", authenticateJwtAccessToken, async (req, res) => {
 });
 
 async function registerUser(userReq, res) {
-  console.log(userReq);
+  console.log("registerUser > ", userReq);
   const emailValid = await check_email(userReq.email);
   if (emailValid) {
-    // Creating empty user object
-    const newUser = new User();
-    newUser.name = userReq.firstName + " " + userReq.lastName;
-    // newUser.firstName = userReq.firstName;
-    // newUser.lastName = userReq.lastName;
-    newUser.email = userReq.email;
-    newUser.password = userReq.password;
-
-    newUser.setPassword(userReq.password);
-
-    // Save newUser object to database
-    try {
-      newUser.save((err, User) => {
-        if (err) {
-          console.log(err);
-          console.log("Failed to add user.");
-          return res.status(400).send({
-            message: "Failed to add user.",
-          });
-        } else {
-          console.log("User added successfully.");
-          return res.status(201).send({
-            message: "User added successfully.",
-          });
-        }
-      });
-    } catch (error) {
-      console.log("error > ", error);
-      console.log("Failed to add user.");
-      return res.status(400).send({
-        message: "Failed to add user.",
-      });
-    }
+    await saveUserToDB(userReq, res);
+    return true;
   } else {
     console.log("Email already in use");
     res.status(401).send({ message: "Email already in use" });
+    return false;
   }
 }
 
 app.post("/signUp", async (req, res) => {
   console.log("/signUp : ", req.body);
   try {
-    await registerUser(req.body, res);
-    console.log("/signUp", "Successful !");
-    res.status(200).send({ message: "User Created !!", data: req.body.data });
+    const userRegistered = await registerUser(req.body.data, res);
+    if (userRegistered) {
+      console.log("/signUp", "Successful !");
+    }
   } catch (error) {
     console.log("signUp catch error > ", error);
     console.log("Failed to signUp.");
@@ -418,7 +383,7 @@ app.post("/register_email", async (req, res) => {
   console.log("Email > ", req.body.data);
   const validEmail = await check_email(req.body.data.email);
   console.log("Valid Email : ", validEmail);
-  if (validEmail) res.status(200).send({ message: "email not in use" });
+  if (validEmail) res.status(200).send({ message: "Email not in use" });
   else res.status(403).send({ message: "email already in use" });
   // res.send(validEmail.name || req.body.email);
 });
