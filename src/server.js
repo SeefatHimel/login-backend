@@ -48,11 +48,7 @@ app.use(express.json());
 app.get("/", (req, res) => {
   res.send({ hello: "hello" });
 });
-const oAuth2Client = new OAuth2Client(
-  keys.web.client_id,
-  keys.web.client_secret,
-  keys.web.redirect_uris[1]
-);
+let oAuth2Client;
 
 async function getGoogleTokens(code, res) {
   console.log("Code ", code);
@@ -129,6 +125,17 @@ app.post("/token", async (req, res) => {
   );
 });
 app.get("/getLink", (req, res) => {
+  console.log(
+    "🚀 ~ file: server.js:128 ~ app.get ~ req",
+    req.get("origin"),
+    req.get("referer")
+  );
+  const redirect_uri = req.get("referer");
+  oAuth2Client = new OAuth2Client(
+    keys.web.client_id,
+    keys.web.client_secret,
+    redirect_uri
+  );
   const authorizeUrl = getLink();
   res.send(authorizeUrl);
 });
