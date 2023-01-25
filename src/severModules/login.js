@@ -1,12 +1,12 @@
 const User = require("../models/user");
 
 const {
-  generateJwtAccessToken,
-  saveJwtRefreshToken,
+  GenerateJwtAccessToken,
+  SaveJwtRefreshToken,
 } = require("../services/tokenService");
-const { getDataFromDBbyEmail } = require("../services/mongoDBService");
+const { GetDataFromDBbyEmail } = require("../services/mongoDBService");
 const jwt = require("jsonwebtoken");
-const { getValidUserData } = require("../services/userData");
+const { GetValidUserData } = require("../services/userData");
 require("dotenv").config();
 
 async function signIn(req, res) {
@@ -28,7 +28,7 @@ async function signIn(req, res) {
       } else {
         console.log("user > ", user);
         if (user.validPassword(req.body.password)) {
-          const accessToken = await generateJwtAccessToken({
+          const accessToken = await GenerateJwtAccessToken({
             id: user?.id,
             name: user?.name,
             email: user?.email,
@@ -42,12 +42,12 @@ async function signIn(req, res) {
             process.env.REFRESH_TOKEN_SECRET
           );
           console.log({ accessToken: accessToken, refreshToken: refreshToken });
-          const savedJwtRefreshToken = await saveJwtRefreshToken(
+          const savedJwtRefreshToken = await SaveJwtRefreshToken(
             user?.email,
             refreshToken
           );
-          const userArray = await getDataFromDBbyEmail(req.body.email);
-          const userData = getValidUserData(userArray[0]);
+          const userArray = await GetDataFromDBbyEmail(req.body.email);
+          const userData = GetValidUserData(userArray[0]);
           console.log("userData > ", userData);
           if (savedJwtRefreshToken && userData) {
             res.cookie("accessToken", accessToken, {
@@ -94,7 +94,6 @@ async function signIn(req, res) {
     });
   }
 }
-
 
 // type userType = {
 //   id: string;

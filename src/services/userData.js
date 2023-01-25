@@ -1,4 +1,4 @@
-function getValidUserData(user) {
+function GetValidUserData(user) {
   return {
     id: user.id,
     email: user.email,
@@ -11,4 +11,4 @@ function getValidUserData(user) {
   };
 }
 
-module.exports = { getValidUserData };
+module.exports = { GetValidUserData };

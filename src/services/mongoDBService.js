@@ -1,7 +1,8 @@
 const User = require("../models/user");
 const { v4: uuidv4 } = require("uuid");
+const jwt = require("jsonwebtoken");
 
-async function saveToDB(name, email) {
+async function SaveToDB(name, email) {
   const oldUser = await User.where("email").equals(email);
   console.log(oldUser[0]);
   if (oldUser[0]) {
@@ -22,22 +23,21 @@ async function saveToDB(name, email) {
   }
   return oldUser[0].id;
 }
-async function getDataFromDBbyEmail(email) {
-  console.log("getDataFromDBbyEmail > ", email);
+async function GetDataFromDBbyEmail(email) {
+  console.log("GetDataFromDBbyEmail > ", email);
   try {
     const userData = await User.where("email").equals(email);
     console.log(
-      "🚀 ~ file: mongoDBService.js:29 ~ getDataFromDBbyEmail ~ userData",
+      "🚀 ~ file: mongoDBService.js:29 ~ GetDataFromDBbyEmail ~ userData",
       userData,
-      userData[0]
     );
     return userData;
   } catch (error) {
-    console.log("getDataFromDBbyEmail Err ", error);
+    console.log("GetDataFromDBbyEmail Err ", error);
     return -1;
   }
 }
-async function saveUserToDB(userReq, res) {
+async function SaveUserToDB(userReq, res) {
   const oldUser = await User.where("email").equals(userReq.email);
   console.log("28");
   console.log(oldUser[0]);
@@ -49,7 +49,6 @@ async function saveUserToDB(userReq, res) {
     newUser.id = uuidv4();
     newUser.email = userReq.email;
     newUser.password = userReq.password;
-
     newUser.setPassword(userReq.password);
 
     // Save newUser object to database
@@ -78,4 +77,41 @@ async function saveUserToDB(userReq, res) {
   }
 }
 
-module.exports = { saveToDB, saveUserToDB, getDataFromDBbyEmail };
+async function getLoggedInUser(token) {
+  let tmp;
+  jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, (err, data) => {
+    console.log("User > ", data);
+    tmp = data;
+  });
+  return tmp;
+}
+
+async function GetUserInfo(req,res)
+{
+  const authToken = req.headers["authorization"].split(" ")[1];
+  console.log("/getData", authToken);
+
+  const loggedInUser = await getLoggedInUser(authToken);
+  console.log("/getData > user > ", loggedInUser);
+  if (!loggedInUser) {
+    console.log("User Not Found");
+    res.status(401).send({
+      message: "User Not Found",
+    });
+  }
+
+  console.log("in data");
+  const data = await GetDataFromDBbyEmail(loggedInUser.email);
+  // console.log("data>>> ", data);
+  // console.log(">>>>>>>", data?.name, data?.email);
+  if (data === -1) {
+    console.log("Failed to acquire data");
+    res.status(400).send({
+      message: "Failed to acquire data",
+    });
+  } else {
+    console.log("data>>> ", data);
+    res.status(200).send(data);
+  }
+}
+module.exports = { SaveToDB, SaveUserToDB, GetDataFromDBbyEmail  ,GetUserInfo};
